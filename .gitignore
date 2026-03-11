@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+.idea/
+.vscode/
+.claude/
+.env
+.venv/
+venv/
+env/
+
+# Runtime outputs
+results/
+slurm_jobs/
+data/splits/
+logs/
+checkpoints/
+*.pt
+*.pth
+*.npy
+*.npz
+*.log
+
+# Local datasets and models
+data/raw/
+data/processed/
+models/
