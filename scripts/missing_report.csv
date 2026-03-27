@@ -1,0 +1,18 @@
+dataset_trait,details,note
+DF_GSF,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_DF_GSF_concat,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_concat_5k,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_lgbm_v1,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_v4.0_dual_tower,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_v4.1_pig_g2v,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_v5,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_GSF_v5_1,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+DF_PCA_3000,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+SVR_1000,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+SVR_10000,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+SVR_500,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+SVR_5000,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+SVR_subset,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+bio_master_v10,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+bio_master_v9,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
+transformer_v1,v5=0 bio10=0 bio9=0 svr=0 gblup=0,No common reps found across all models
