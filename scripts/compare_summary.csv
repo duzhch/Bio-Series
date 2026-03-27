@@ -1,2 +1,0 @@
-dataset_trait,N_v5_reps,PCC_v5_mean,PCC_v5_std,PCC_bio10_mean,PCC_bio10_std,PCC_bio9_mean,PCC_bio9_std,PCC_SVR_mean,PCC_SVR_std,PCC_GBLUP_mean,PCC_GBLUP_std,mean_Delta_v5_minus_bio10,mean_Delta_v5_minus_bio9,mean_Delta_v5_minus_SVR,mean_Delta_v5_minus_GBLUP,MSE_v5_mean,MSE_v5_std,MSE_bio10_mean,MSE_bio10_std,MSE_bio9_mean,MSE_bio9_std,MSE_SVR_mean,MSE_SVR_std,MSE_GBLUP_mean,MSE_GBLUP_std
-LargeWhite_Pop1_BF,10,0.4835,0.0205,0.5223,0.0231,0.5230,0.0214,0.5160,0.0304,,,-0.0387,-0.0395,-0.0325,,8.4078,0.3612,210.5437,9.2078,215.5616,9.6086,7.3935,0.3501,,

@@ -20,13 +20,19 @@ slurm_jobs/
 data/splits/
 logs/
 checkpoints/
+reports/
 *.pt
 *.pth
 *.npy
 *.npz
 *.log
+jobs.sh
+submit_cpu_test.sh
+scripts/*.csv
+https:/
 
 # Local datasets and models
 data/raw/
 data/processed/
 models/
+resources/
