@@ -1,24 +1,28 @@
-exp_root: "."
+# Local lab config. For a GitHub-safe starting point, copy from config/examples/public_template.yaml
+exp_root: "/work/home/zyqgroup02/duanzhichao/exp_00/experiments/01_benchmarks"
 
 resources:
-  reference_genome: "./resources/reference/Sus_scrofa.Sscrofa11.1.dna.toplevel.fa"
-  gtf_file: "./resources/annotation/Sus_scrofa.Sscrofa11.1.111.gtf.gz"
-  pigbert_model: "./resources/models/pig_bert2_v1"
-  gene2vec_model: "./resources/models/pig_gene2vec_300d.vector"
+  reference_genome: "/work/home/zyqgroup02/duanzhichao/exp_00/data/references/Sus_scrofa.Sscrofa11.1.dna.toplevel.fa"
+  # ✅ 新增：GTF 注释文件 (全流程的核心依赖)
+  gtf_file: "/work/home/zyqgroup02/duanzhichao/exp_00/data/annotations/Sus_scrofa.Sscrofa11.1.111.gtf.gz"
+  
+  pigbert_model: "/work/home/zyqgroup02/duanzhichao/exp_00/models/pig_bert2_v1"
+  gene2vec_model: "/work/home/zyqgroup02/duanzhichao/data/pigGTEx/pig_gene2vec_v2/output/models_v2/pig_g2v_id0_sz768_neg5_sg1.vector"
+  
   plink_bin: "plink"
   gcta_bin: "gcta64"
-  python_bin: "python"
+  python_bin: "/work/home/zyqgroup01/duanzhichao/miniconda3/envs/NT/bin/python"
 
 slurm:
-  cpu_partition: "cpu"
-  gpu_partition: "gpu"
+  cpu_partition: "XiaoQingHe"
+  gpu_partition: "ChaoBaiHe"
   cpus_per_task: 8
   mem: "64G"
   gres: "gpu:1"
   time: "24:00:00"
 
 experiment:
-  replicates: 3
+  replicates: 10
   top_n_snps: 3000
   window_size: 512
   batch_size: 64
@@ -28,36 +32,38 @@ experiment:
 
 datasets:
   LargeWhite_Pop1:
-    plink: "./data/processed/LargeWhitePopulation1/plink/LargeWhitePopulation1"
-    pheno: "./data/processed/LargeWhitePopulation1/pheno/phenotypes.csv"
+    plink: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/LargeWhitePopulation1/plink/LargeWhitePopulation1"
+    pheno: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/LargeWhitePopulation1/pheno/phenotypes.csv"
     id_col: "sample_id"
     traits: ["BF", "TNB", "AGE"]
     sep: ","
 
   LargeWhite_Pop2:
-    plink: "./data/processed/LargeWhitePopulation2/plink/LargeWhitePopulation2"
-    pheno: "./data/processed/LargeWhitePopulation2/pheno/phenotypes.tsv"
+    plink: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/LargeWhitePopulation2/plink/LargeWhitePopulation2"
+    pheno: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/LargeWhitePopulation2/pheno/phenotypes.tsv"
     id_col: "sample_id"
     traits: ["BF", "AGE"]
     sep: "\t"
 
   American_Duroc:
-    plink: "./data/processed/American_Duroc/plink/American_Duroc"
-    pheno: "./data/processed/American_Duroc/pheno/phenotypes.tsv"
+    plink: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/American_Duroc/plink/American_Duroc"
+    pheno: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/American_Duroc/pheno/phenotypes.tsv"
     id_col: "sample_id"
     traits: ["LMA", "LMD"]
     sep: "\t"
 
   Canadian_Duroc:
-    plink: "./data/processed/Canadian_Duroc/plink/Canadian_Duroc"
-    pheno: "./data/processed/Canadian_Duroc/pheno/phenotypes.tsv"
+    plink: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/Canadian_Duroc/plink/Canadian_Duroc"
+    pheno: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/Canadian_Duroc/pheno/phenotypes.tsv"
     id_col: "sample_id"
     traits: ["LMA", "LMD"]
     sep: "\t"
 
   Wenshi_Line1:
-    plink: "./data/processed/wenshi/line1/plink/wenshi_line1"
-    pheno: "./data/processed/wenshi/line1/pheno/phenotypes.tsv"
+    plink: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/wenshi/line1/plink/wenshi_line1"
+    pheno: "/work/home/zyqgroup02/duanzhichao/exp_00/data/processed/wenshi/line1/pheno/phenotypes.tsv"
     id_col: "sample_id"
     traits: ["tnb"]
     sep: "\t"
+
+# Annotation section removed as we now use raw GTF in resources

@@ -1,0 +1,35 @@
+exp_root: "/absolute/path/to/project_runtime_root"
+
+resources:
+  reference_genome: "/absolute/path/to/reference.fa"
+  gtf_file: "/absolute/path/to/annotation.gtf.gz"
+  pigbert_model: "/absolute/path/to/pigbert_model_dir"
+  gene2vec_model: "/absolute/path/to/gene2vec.vector"
+  plink_bin: "plink"
+  gcta_bin: "gcta64"
+  python_bin: "python"
+
+slurm:
+  cpu_partition: "cpu"
+  gpu_partition: "gpu"
+  cpus_per_task: 8
+  mem: "32G"
+  gres: "gpu:1"
+  time: "24:00:00"
+
+experiment:
+  replicates: 10
+  top_n_snps: 3000
+  window_size: 512
+  batch_size: 64
+  epochs: 150
+  lr: 5.0e-4
+  lambda_l1: 0.005
+
+datasets:
+  example_population:
+    plink: "/absolute/path/to/plink/prefix"
+    pheno: "/absolute/path/to/phenotypes.tsv"
+    id_col: "sample_id"
+    traits: ["trait_1", "trait_2"]
+    sep: "\t"

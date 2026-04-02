@@ -1,238 +1,156 @@
-# Bio-Series
+# DF_GSF_v5
 
-Bio-Series is a genomic prediction repository centered on the `DF_GSF_v5` pipeline and a family of biologically informed deep models such as `bio_master_v8`, `bio_master_v10`, `bio_master_v11`, and `bio_master_v13`.
+`DF_GSF_v5` is a genomic prediction pipeline centered on biologically informed wide-and-deep models for pig breeding traits. The current mainline combines GWAS-based SNP selection, sequence and gene-function priors, genotype extraction, deep model training, and ablation comparison.
 
-The model and file names are kept as-is for experiment compatibility. This repository has been reorganized so it can be cloned and configured on a new machine without editing hardcoded paths inside the source code.
+## Mainline entry points
 
-## What This Repository Contains
+- `DF_GSF_v5.py`: single-run launcher
+- `submit_jobs.py`: Slurm batch script generator
+- `src/`: source code for GWAS, feature extraction, data handling, and models
+- `scripts/compare_ablations.py`: summarize ablation outputs against the `full` anchor
+- `tests/`: launcher and model wiring tests
+- `config/examples/public_template.yaml`: GitHub-safe config template
 
-- `DF_GSF_v5.py`: main pipeline entrypoint
-- `src/gwas.py`: GWAS, PCA, and LD clumping
-- `src/features.py`: PigBERT delta embeddings, GTF annotation, and Gene2Vec loading
-- `src/data.py`: PLINK extraction helpers
-- `src/models/`: model implementations, version names preserved
-- `submit_jobs.py`: Slurm wrapper generation
-- `test_gpu.py`: local environment and DeltaEngine smoke test
-- `scripts/compare_v5_vs_baselines.py`: summarize experiment outputs
+For a concise map of runnable versus archival content, see [docs/project_structure.md](docs/project_structure.md).
 
-## What Is Not Included
+## Repository layout
 
-This repository does not ship the large external resources required for training:
-
-- genotype PLINK files
-- phenotype tables
-- train/test split files
-- reference genome FASTA
-- GTF annotation
-- PigBERT model files
-- Gene2Vec model files
-
-You need to prepare those locally and point the config file to them.
-
-## Requirements
-
-Python dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-System tools expected in `PATH`:
-
-- `plink`
-- `gcta64`
-
-## Repository Layout
-
-```text
-Bio-Series/
-├── DF_GSF_v5.py
-├── config/
-│   ├── config.yaml
-│   ├── global_config.yaml
-│   ├── v11_config.yaml
-│   └── v12_config.yaml
-├── scripts/
-│   └── compare_v5_vs_baselines.py
-├── src/
-│   ├── data.py
-│   ├── features.py
-│   ├── gwas.py
-│   └── models/
-├── test_gpu.py
-├── submit_jobs.py
-└── thesis_materials/
-```
+The repository keeps older model variants, helper shell scripts, and thesis materials for traceability, but the active execution path is the mainline listed above. Historical and supporting materials are preserved rather than deleted.
 
 ## Configuration
 
-The files under `config/` are now templates. All machine-specific absolute paths have been removed.
-
-Recommended workflow:
+Start from the public template:
 
 ```bash
-cp config/global_config.yaml config/local.yaml
+cp config/examples/public_template.yaml config/my_local.yaml
 ```
 
-Then edit `config/local.yaml` to match your machine.
+Fill in local absolute paths in `config/my_local.yaml`, or override machine-specific paths with environment variables.
 
-### Path Rules
+Supported environment overrides:
 
-- Relative paths are supported and are resolved from the repository root.
-- `exp_root: "."` means outputs are written under the cloned repository.
-- `plink_bin`, `gcta_bin`, and `python_bin` can be command names such as `plink`, `gcta64`, and `python`.
+- `BIO_SERIES_EXP_ROOT`
+- `BIO_SERIES_PYTHON_BIN`
+- `BIO_SERIES_PLINK_BIN`
+- `BIO_SERIES_GCTA_BIN`
+- `BIO_SERIES_REFERENCE_GENOME`
+- `BIO_SERIES_GTF_FILE`
+- `BIO_SERIES_PIGBERT_MODEL`
+- `BIO_SERIES_GENE2VEC_MODEL`
+- `BIO_SERIES_DATASET_<DATASET>_PLINK`
+- `BIO_SERIES_DATASET_<DATASET>_PHENO`
 
-### Required Config Sections
+For dataset-specific variables, `<DATASET>` is the dataset key converted to uppercase with non-alphanumeric characters replaced by underscores.
 
-You must set:
+The files under `config/` such as `v11_config.yaml` are retained as local lab configs. They are not the public portability baseline.
 
-- `resources.reference_genome`
-- `resources.gtf_file`
-- `resources.pigbert_model`
-- `resources.gene2vec_model`
-- each dataset's `plink`
-- each dataset's `pheno`
+## Single experiment
 
-The dataset keys and trait names in the templates are kept close to the original experiments so old commands still make sense.
-
-## Required Local File Structure
-
-This code expects split files at:
-
-```text
-data/splits/<dataset>_<trait>/<rep>/train.ids
-data/splits/<dataset>_<trait>/<rep>/test.ids
-```
-
-Each split file should contain two columns without a header:
-
-```text
-FID IID
-```
-
-Example:
-
-```text
-1001 1001
-1002 1002
-```
-
-## Quick Start
-
-Clone the repository:
+Run the full pipeline with explicit arguments:
 
 ```bash
-git clone https://github.com/duzhch/Bio-Series.git
-cd Bio-Series
+python DF_GSF_v5.py run-all \
+  --config config/my_local.yaml \
+  --dataset LargeWhite_Pop1 \
+  --trait BF \
+  --rep rep_01 \
+  --model bio_master_v11 \
+  --ablation full
 ```
 
-Install dependencies:
+The launcher also supports `run-gwas` for isolated GWAS and PCA generation.
+
+## Ablation modes
+
+Current biological module ablations for `bio_master_v11`:
+
+- `full`
+- `no_delta`
+- `no_gene2vec`
+- `no_bio_prior`
+- `no_pca`
+- `pca_only_prior_off`
+
+Results are written under:
+
+```text
+results/<dataset>_<trait>/<model>__<ablation>/<rep>/
+```
+
+Each run writes a `run_meta.json` describing the ablation semantics and resolved paths for the generated artifacts.
+
+## Batch submission
+
+Generate Slurm jobs for one or more traits and ablations:
+
+```bash
+python submit_jobs.py \
+  --config config/my_local.yaml \
+  --datasets LargeWhite_Pop1 \
+  --traits BF \
+  --model bio_master_v11 \
+  --ablations full,no_delta,no_pca \
+  --out-sh submit_all.sh
+```
+
+Optional flags:
+
+- `--cpu-only`
+- `--wait`
+- `--wait-interval`
+- `--max-wait-hours`
+
+## Compare ablations
+
+Summarize per-replicate and aggregated ablation results:
+
+```bash
+python scripts/compare_ablations.py \
+  --root /path/to/experiment_root \
+  --out /path/to/summary_dir \
+  --model bio_master_v11
+```
+
+Outputs:
+
+- `ablation_compare_rep.csv`
+- `ablation_compare_summary.csv`
+
+## Dependencies
+
+The code expects a Python environment with at least:
+
+- `PyYAML`
+- `numpy`
+- `pandas`
+- `torch`
+- `scikit-learn`
+- `scipy`
+- `pandas_plink`
+
+Install the Python dependencies with:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Create and edit your local config:
+Feature extraction and GWAS stages also depend on external tools and resources configured in YAML:
 
-```bash
-cp config/global_config.yaml config/local.yaml
-```
+- `plink`
+- `gcta`
+- reference genome FASTA
+- GTF annotation
+- PigBERT model
+- Gene2Vec model
 
-Run a smoke test for device selection and DeltaEngine initialization:
+## Historical and supporting content
 
-```bash
-python test_gpu.py --config config/local.yaml
-```
+The repository intentionally keeps:
 
-Run only the GWAS stage first:
+- older `src/models/` variants
+- shell helpers such as `jobs.sh`, `generate_cpu_test.sh`, and `submit_cpu_test.sh`
+- `scripts/compare_v5_vs_baselines.py`
+- `thesis_materials/`
+- `docs/superpowers/`
 
-```bash
-python DF_GSF_v5.py run-gwas \
-  --config config/local.yaml \
-  --dataset LargeWhite_Pop1 \
-  --trait BF \
-  --rep rep_01 \
-  --model bio_master_v11
-```
-
-Run the full pipeline:
-
-```bash
-python DF_GSF_v5.py run-all \
-  --config config/local.yaml \
-  --dataset LargeWhite_Pop1 \
-  --trait BF \
-  --rep rep_01 \
-  --model bio_master_v11
-```
-
-## Pipeline Stages
-
-`run-all` executes the following steps:
-
-1. genome-wide PCA and GCTA MLMA
-2. LD clumping and SNP selection
-3. PigBERT delta embedding extraction
-4. GTF-based gene annotation and Gene2Vec loading
-5. PLINK extraction of selected SNP genotypes
-6. model training and evaluation
-
-## Batch Jobs
-
-Generate Slurm jobs with a chosen model:
-
-```bash
-python submit_jobs.py \
-  --config config/local.yaml \
-  --datasets LargeWhite_Pop1 \
-  --traits BF \
-  --reps 1 \
-  --model bio_master_v11 \
-  --out-sh run_jobs.sh
-```
-
-Generate a CPU-only smoke-test job:
-
-```bash
-./generate_cpu_test.sh config/local.yaml
-```
-
-## Result Files
-
-For a run like `dataset=LargeWhite_Pop1`, `trait=BF`, `model=bio_master_v11`, `rep=rep_01`, outputs will be placed under:
-
-```text
-results/LargeWhite_Pop1_BF/bio_master_v11/rep_01/
-```
-
-Typical artifacts include:
-
-- `global_pca_features.csv`
-- `snps_for_emb.csv`
-- `selected_snp_ids.txt`
-- `delta_embeddings.npy`
-- `gene_knowledge.npy`
-- `fusion_geno.bed/.bim/.fam`
-- `best_model.pt`
-- `pred.csv`
-- `stats.json`
-
-## Comparing Results
-
-You can summarize experiment outputs with:
-
-```bash
-python scripts/compare_v5_vs_baselines.py \
-  --root . \
-  --out reports/compare
-```
-
-## Notes For Maintenance
-
-- Model file names are intentionally unchanged.
-- Generated artifacts such as `__pycache__`, local editor settings, transient CSV reports, and host-specific job wrappers are not tracked.
-- If you add a new dataset, only update the config file. The pipeline code should not need new machine-specific edits.
-
-## Citation
-
-If you use this repository in research, cite the associated manuscript or project report for Bio-Series / DF_GSF_v5.
+These materials are preserved for reproducibility and documentation history, but they are not the recommended starting point for new runs.

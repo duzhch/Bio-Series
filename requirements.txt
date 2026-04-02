@@ -1,12 +1,7 @@
+PyYAML
 numpy
 pandas
-PyYAML
-scipy
-scikit-learn
 torch
-transformers
-sentencepiece
-pysam
-intervaltree
-pandas-plink
-gensim
+scikit-learn
+scipy
+pandas_plink

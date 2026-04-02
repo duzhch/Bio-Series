@@ -2,6 +2,8 @@
 import os
 import json
 import math
+import re
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import torch
@@ -14,6 +16,52 @@ from scipy.stats import pearsonr
 from torch.utils.data import Dataset, DataLoader
 from pandas_plink import read_plink
 from pathlib import Path
+
+SUPPORTED_ABLATIONS = {
+    'full',
+    'no_delta',
+    'no_gene2vec',
+    'no_bio_prior',
+    'no_pca',
+    'pca_only_prior_off',
+}
+
+
+def normalize_ablation(ablation):
+    normalized = 'full' if ablation is None else str(ablation).strip().lower()
+    normalized = re.sub(r'[\s-]+', '_', normalized)
+    normalized = re.sub(r'_+', '_', normalized).strip('_')
+    if normalized not in SUPPORTED_ABLATIONS:
+        raise ValueError(
+            f"Unsupported ablation='{ablation}'. Expected one of {sorted(SUPPORTED_ABLATIONS)}"
+        )
+    return normalized
+
+
+@dataclass(frozen=True)
+class AblationConfig:
+    name: str
+    prior_mode: str
+    use_context: bool = True
+    zero_delta: bool = False
+    zero_gene: bool = False
+
+    @classmethod
+    def from_name(cls, ablation):
+        name = normalize_ablation(ablation)
+        if name == 'full':
+            return cls(name=name, prior_mode='learned_two_channel')
+        if name == 'no_delta':
+            return cls(name=name, prior_mode='learned_two_channel', zero_delta=True)
+        if name == 'no_gene2vec':
+            return cls(name=name, prior_mode='learned_two_channel', zero_gene=True)
+        if name == 'no_bio_prior':
+            return cls(name=name, prior_mode='single_channel')
+        if name == 'no_pca':
+            return cls(name=name, prior_mode='learned_two_channel', use_context=False)
+        if name == 'pca_only_prior_off':
+            return cls(name=name, prior_mode='zero_two_channel')
+        raise AssertionError(f"Unhandled ablation mode: {name}")
 
 # ==========================================
 # 1. Hybrid Loss Function (Robust Version)
@@ -54,7 +102,9 @@ class HybridPCCLoss(nn.Module):
         loss_rank = self.listnet_loss(p, t)
         
         if deep_feat is not None and context_feat is not None:
-            orth_loss = torch.mean(torch.abs(F.cosine_similarity(deep_feat, context_feat.detach(), dim=0)))
+            orth_loss = torch.mean(
+                torch.abs(F.cosine_similarity(deep_feat, context_feat.detach(), dim=1))
+            )
         else:
             orth_loss = torch.tensor(0.0, device=pred.device)
 
@@ -70,9 +120,13 @@ class PriorGenerator(nn.Module):
         self.delta_compress = nn.Linear(delta_dim, 16)
         self.gene_compress = nn.Linear(gene_dim, 16)
         self.fuse = nn.Sequential(nn.Linear(32, 1), nn.Sigmoid())
-    def forward(self, d_emb, g_emb):
+    def forward(self, d_emb, g_emb, zero_delta=False, zero_gene=False):
         d = F.relu(self.delta_compress(d_emb), inplace=True)
         g = F.relu(self.gene_compress(g_emb), inplace=True)
+        if zero_delta:
+            d = torch.zeros_like(d)
+        if zero_gene:
+            g = torch.zeros_like(g)
         return self.fuse(torch.cat([d, g], dim=1))
 
 class PositionalEncoding(nn.Module):
@@ -116,8 +170,9 @@ class GenomicTransformer(nn.Module):
 # ==========================================
 
 class BioMasterV10(nn.Module):
-    def __init__(self, delta_E, gene_E, num_snps, num_pcs, block_size=100):
+    def __init__(self, delta_E, gene_E, num_snps, num_pcs, block_size=100, ablation='full'):
         super().__init__()
+        self.ablation = AblationConfig.from_name(ablation)
         self.register_buffer('delta_E', torch.tensor(delta_E, dtype=torch.float32))
         self.register_buffer('gene_E', torch.tensor(gene_E, dtype=torch.float32))
         
@@ -129,10 +184,11 @@ class BioMasterV10(nn.Module):
         
         # --- Deep Tower (Genomic Transformer) ---
         self.prior_gen = PriorGenerator(delta_E.shape[1], gene_E.shape[1])
+        deep_in_channels = 1 if self.ablation.prior_mode == 'single_channel' else 2
         
         self.genomic_transformer = GenomicTransformer(
             block_size=block_size, 
-            in_channels=2, 
+            in_channels=deep_in_channels, 
             d_model=self.d_model, 
             nhead=4,
             num_layers=2 
@@ -150,15 +206,32 @@ class BioMasterV10(nn.Module):
         self.deep_out = nn.Linear(64, 1)
         
         # --- Context Tower ---
-        self.context_feat_extractor = nn.Sequential(
-            nn.Linear(num_pcs, 64), 
-            nn.ReLU(inplace=True)
-        )
-        self.context_out = nn.Linear(64, 1)
+        if self.ablation.use_context:
+            self.context_feat_extractor = nn.Sequential(
+                nn.Linear(num_pcs, 64), 
+                nn.ReLU(inplace=True)
+            )
+            self.context_out = nn.Linear(64, 1)
+        else:
+            self.context_feat_extractor = None
+            self.context_out = None
 
         # --- Wide Tower ---
         self.wide_linear = nn.Linear(num_snps, 1)
         nn.init.normal_(self.wide_linear.weight, 0, 0.001)
+
+    def _build_priors(self):
+        if self.ablation.prior_mode != 'learned_two_channel':
+            return torch.zeros(
+                self.delta_E.shape[0], 1, device=self.delta_E.device, dtype=self.delta_E.dtype
+            )
+
+        return self.prior_gen(
+            self.delta_E,
+            self.gene_E,
+            zero_delta=self.ablation.zero_delta,
+            zero_gene=self.ablation.zero_gene,
+        )
 
     def forward(self, X_snps, X_pcs):
         B, N = X_snps.shape
@@ -167,11 +240,15 @@ class BioMasterV10(nn.Module):
         out_wide = self.wide_linear(X_snps)
         
         # Path B: Context
-        feat_ctx = self.context_feat_extractor(X_pcs)
-        out_ctx = self.context_out(feat_ctx)
+        if self.context_feat_extractor is not None:
+            feat_ctx = self.context_feat_extractor(X_pcs)
+            out_ctx = self.context_out(feat_ctx)
+        else:
+            feat_ctx = None
+            out_ctx = torch.zeros_like(out_wide)
         
         # Path C: Deep (Transformer)
-        priors = self.prior_gen(self.delta_E, self.gene_E)
+        priors = self._build_priors()
         
         if self.pad_len > 0:
             X_p = F.pad(X_snps, (0, self.pad_len))
@@ -180,10 +257,13 @@ class BioMasterV10(nn.Module):
             X_p, P_p = X_snps, priors
             
         g_blocks = X_p.view(B, self.n_blocks, self.block_size)
-        p_blocks = P_p.view(1, self.n_blocks, self.block_size).expand(B, -1, -1)
-        
-        # [B * N_Blocks, 2, Block_Size]
-        x_folded = torch.stack([g_blocks, p_blocks], dim=2).view(-1, 2, self.block_size)
+        if self.ablation.prior_mode == 'single_channel':
+            x_folded = g_blocks.reshape(-1, 1, self.block_size)
+        else:
+            p_blocks = P_p.view(1, self.n_blocks, self.block_size).expand(B, -1, -1)
+            
+            # [B * N_Blocks, 2, Block_Size]
+            x_folded = torch.stack([g_blocks, p_blocks], dim=2).view(-1, 2, self.block_size)
         
         # 1. Local Compression -> [B*N_Blk, d_model]
         block_tokens = self.genomic_transformer.local_conv(x_folded).squeeze(-1) 
@@ -237,17 +317,18 @@ def _load_pheno_map(pheno_file, trait):
     return dict(zip(df[id_col], df[trait]))
 
 def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene_path, out_dir, 
-          lr=3e-4, batch_size=64, epochs=150, lambda_l1=0.005, device='auto'):
+          lr=3e-4, batch_size=64, epochs=150, lambda_l1=0.005, device='auto', ablation='full'):
     
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True) # Ensure dir exists
 
-    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    dev = device if device != 'auto' else ('cuda' if torch.cuda.is_available() else 'cpu')
+    ablation = normalize_ablation(ablation)
     
     if dev == 'cpu':
         torch.set_num_threads(4) 
     
-    print(f"🚀 Training Bio-Master V10 (Transformer + Robust) on {dev}")
+    print(f"🚀 Training Bio-Master V10 (Transformer + Robust) on {dev} [ablation={ablation}]")
 
     # Load Data
     delta = np.load(delta_path); gene = np.load(gene_path)
@@ -281,7 +362,14 @@ def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene
     X_tr = np.nan_to_num(X_tr); X_te = np.nan_to_num(X_te)
     P_tr = np.nan_to_num(P_tr); P_te = np.nan_to_num(P_te)
     
-    model = BioMasterV10(delta, gene, num_snps=X_tr.shape[1], num_pcs=P_tr.shape[1], block_size=100).to(dev)
+    model = BioMasterV10(
+        delta,
+        gene,
+        num_snps=X_tr.shape[1],
+        num_pcs=P_tr.shape[1],
+        block_size=100,
+        ablation=ablation,
+    ).to(dev)
     
     base_params = [p for n, p in model.named_parameters() if 'wide' not in n]
     wide_params = [p for n, p in model.named_parameters() if 'wide' in n]
@@ -360,9 +448,9 @@ def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene
     with torch.no_grad():
         final_x = torch.tensor(X_te, dtype=torch.float32).to(dev)
         final_p = torch.tensor(P_te, dtype=torch.float32).to(dev)
-        preds, w, _, _ = model(final_x, final_p)
+        preds, priors, _, _ = model(final_x, final_p)
         preds = preds.cpu().numpy().flatten()
-        w_mean = w.cpu().numpy().mean(axis=0)
+        priors = priors.cpu().numpy().reshape(-1)
 
     # [Robust] Final Check
     if np.isnan(preds).any():
@@ -374,7 +462,7 @@ def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene
     except ValueError:
         mse = -1.0
         
-    nz = int(np.sum(np.abs(w_mean) > 1e-3))
+    nz = int(np.sum(np.abs(priors) > 1e-3))
     
     pd.DataFrame({'IID': te_ids, 'True': y_te, 'Pred': preds}).to_csv(out / 'pred.csv', index=False)
     with open(out / 'stats.json', 'w') as f: 
