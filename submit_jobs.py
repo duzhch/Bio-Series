@@ -183,6 +183,7 @@ def main():
                     submit_lines.append(f"sbatch {script}")
 
     out_sh = Path(args.out_sh)
+    out_sh.parent.mkdir(parents=True, exist_ok=True)
     out_sh.write_text("\n".join(submit_lines) + "\n")
     out_sh.chmod(0o755)
     print(f"Generated submit script: {out_sh}")

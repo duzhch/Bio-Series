@@ -838,3 +838,47 @@ def test_compare_ablations_treats_non_numeric_stats_as_missing(tmp_path):
     assert summary_rows[0]["PCC_drop_aux_mean"] == ""
     assert summary_rows[0]["MSE_drop_aux_mean"] == ""
     assert summary_rows[0]["mean_Delta_full_minus_drop_aux"] == ""
+
+
+def test_submit_jobs_creates_out_sh_parent_directory(tmp_path, monkeypatch):
+    submit_jobs = load_submit_jobs_module()
+    exp_root = tmp_path / "runtime"
+    config_path = tmp_path / "cfg.json"
+    out_sh = tmp_path / "nested" / "manifests" / "baseline.sh"
+    cfg = {
+        "exp_root": str(exp_root),
+        "experiment": {"replicates": 1},
+        "datasets": {"pig": {"traits": ["backfat"]}},
+        "slurm": {
+            "cpu_partition": "cpu",
+            "gpu_partition": "gpu",
+            "cpus_per_task": 4,
+            "mem": "8G",
+            "gres": "gpu:1",
+            "time": "00:30:00",
+        },
+        "resources": {"python_bin": "python"},
+    }
+    config_path.write_text(json.dumps(cfg))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "submit_jobs.py",
+            "--config",
+            str(config_path),
+            "--datasets",
+            "pig",
+            "--traits",
+            "backfat",
+            "--ablations",
+            "full",
+            "--out-sh",
+            str(out_sh),
+        ],
+    )
+
+    submit_jobs.main()
+
+    assert out_sh.exists()
+    assert out_sh.parent.is_dir()

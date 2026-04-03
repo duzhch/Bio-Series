@@ -1,0 +1,70 @@
+exp_root: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/runs/df_gsf_v5_bio_series_20260403_leakfix"
+
+resources:
+  reference_genome: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/data/references/Sus_scrofa.Sscrofa11.1.dna.toplevel.fa"
+  gtf_file: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/data/annotations/Sus_scrofa.Sscrofa11.1.111.gtf.gz"
+  pigbert_model: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/models/pig_bert2_v1"
+  gene2vec_model: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/data/pigGTEx/pig_gene2vec_v2/output/models_v2/pig_g2v_id8_sz300_neg5_sg1.vector"
+  plink_bin: "/work/home/zyqlab/dzhichao/zyqgroup01_duanzhichao/miniconda3/envs/NT/bin/plink"
+  gcta_bin: "/work/home/zyqlab/dzhichao/zyqgroup01_duanzhichao/gcta_1.94.0beta/gcta64"
+  python_bin: "/work/home/zyqlab/dzhichao/zyqgroup01_duanzhichao/miniconda3/envs/NT/bin/python"
+
+slurm:
+  cpu_partition: "XiaoQingHe"
+  gpu_partition: "JuMaHe"
+  cpus_per_task: 8
+  mem: "64G"
+  gres: "gpu:1"
+  time: "24:00:00"
+
+experiment:
+  replicates: 10
+  top_n_snps: 3000
+  window_size: 512
+  batch_size: 64
+  epochs: 150
+  lr: 5.0e-4
+  lambda_l1: 0.005
+
+datasets:
+  American_Duroc:
+    plink: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/Amercian_duroci/Amercian_duroic_QCed"
+    pheno: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/Amercian_duroci/aligned_phenotype.csv"
+    id_col: "ID"
+    traits: ["LMA", "LMD"]
+    sep: ","
+
+  Canadian_Duroc:
+    plink: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/Canadian_duroic/Canadian_duroic_QCed"
+    pheno: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/Canadian_duroic/aligned_phenotype.csv"
+    id_col: "ID"
+    traits: ["LMA", "LMD"]
+    sep: ","
+
+  LargeWhite_Pop1:
+    plink: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp1/lwp1_QCed"
+    pheno: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp1/aligned_Growth_phenotype.csv"
+    id_col: "ID"
+    traits: ["AGE", "BF"]
+    sep: ","
+
+  LargeWhite_Pop1_Repro:
+    plink: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp1/lwp1_QCed"
+    pheno: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp1/aligned_Reproductive_phenotype.csv"
+    id_col: "ID"
+    traits: ["LW", "NBA", "TNB"]
+    sep: ","
+
+  LargeWhite_Pop2:
+    plink: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp2/lwp2_QCed"
+    pheno: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp2/aligned_age.csv"
+    id_col: "ID"
+    traits: ["AGE"]
+    sep: ","
+
+  LargeWhite_Pop2_BF:
+    plink: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp2/lwp2_QCed"
+    pheno: "/work/home/zyqlab/dzhichao/zyqgroup02_duanzhichao/exp_00/experiments/01_benchmarks/Bio-series-data/01_processed_data/lwp2/aligned_BF.csv"
+    id_col: "ID"
+    traits: ["BF"]
+    sep: ","
