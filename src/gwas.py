@@ -5,6 +5,8 @@ import numpy as np
 import logging
 from pathlib import Path
 
+from src.id_mapping import map_pheno_ids_to_plink_ids
+
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -120,10 +122,15 @@ class GWASSelector:
                 raise ValueError(f"Trait '{trait}' not found in phenotype file. Available columns: {list(df.columns)}")
 
         # 3. 构建清洗后的 DataFrame
+        mapped_df = map_pheno_ids_to_plink_ids(
+            pheno_df=df,
+            plink_prefix=self.plink_prefix,
+            id_col=iid_col,
+        )
         out_df = pd.DataFrame()
-        out_df['FID'] = df[fid_col] if fid_col else df[iid_col]
-        out_df['IID'] = df[iid_col]
-        out_df['Trait'] = df[trait]
+        out_df['FID'] = mapped_df['FID']
+        out_df['IID'] = mapped_df['IID']
+        out_df['Trait'] = mapped_df[trait]
         
         # 4. 处理缺失值 (GCTA 默认识别 -9 或 NA，这里统一转为字符串 "NA")
         out_df['Trait'] = out_df['Trait'].replace([np.inf, -np.inf], np.nan)

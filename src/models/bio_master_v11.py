@@ -3,6 +3,7 @@ import os
 import json
 import math
 import re
+import hashlib
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
@@ -16,6 +17,8 @@ from scipy.stats import pearsonr
 from torch.utils.data import Dataset, DataLoader
 from pandas_plink import read_plink
 from pathlib import Path
+
+from src.id_mapping import map_pheno_ids_to_plink_ids
 
 SUPPORTED_ABLATIONS = {
     'full',
@@ -310,11 +313,63 @@ def load_pca(pca_file, valid_ids):
         return np.array([list(pca_map.get(iid, zero_vec).values()) for iid in valid_ids])
     except: return np.zeros((len(valid_ids), 10))
 
-def _load_pheno_map(pheno_file, trait):
+
+def _make_train_val_split(train_ids, val_fraction=0.1, min_val_size=2):
+    num_samples = len(train_ids)
+    if num_samples <= 1:
+        return list(range(num_samples)), []
+
+    target_val = max(1, math.ceil(num_samples * val_fraction))
+    if num_samples >= 4:
+        target_val = max(target_val, min_val_size)
+    target_val = min(target_val, num_samples - 1)
+
+    ranked = sorted(
+        range(num_samples),
+        key=lambda idx: hashlib.md5(str(train_ids[idx]).encode("utf-8")).hexdigest(),
+    )
+    val_idx = sorted(ranked[:target_val])
+    val_lookup = set(val_idx)
+    train_idx = [idx for idx in range(num_samples) if idx not in val_lookup]
+    return train_idx, val_idx
+
+
+def _build_fold_pca_features(x_train, other_arrays, num_pcs=10):
+    x_train = np.asarray(x_train, dtype=np.float32)
+    other_arrays = [np.asarray(arr, dtype=np.float32) for arr in other_arrays]
+
+    def zeros_for(arr):
+        return np.zeros((arr.shape[0], num_pcs), dtype=np.float32)
+
+    if x_train.ndim != 2:
+        raise ValueError(f"Expected x_train to be 2D, got shape={x_train.shape}")
+    if x_train.shape[0] == 0 or x_train.shape[1] == 0:
+        return zeros_for(x_train), [zeros_for(arr) for arr in other_arrays]
+
+    train_mean = np.mean(x_train, axis=0, keepdims=True)
+    centered_train = x_train - train_mean
+    if x_train.shape[0] < 2:
+        return zeros_for(x_train), [zeros_for(arr) for arr in other_arrays]
+
+    _u, _s, vt = np.linalg.svd(centered_train, full_matrices=False)
+    effective_pcs = min(num_pcs, vt.shape[0])
+    components = vt[:effective_pcs].T
+
+    def transform(arr):
+        centered = arr - train_mean
+        scores = centered @ components
+        if effective_pcs < num_pcs:
+            scores = np.pad(scores, ((0, 0), (0, num_pcs - effective_pcs)))
+        return scores.astype(np.float32, copy=False)
+
+    return transform(x_train), [transform(arr) for arr in other_arrays]
+
+def _load_pheno_map(pheno_file, trait, plink_prefix):
     df = pd.read_csv(pheno_file, sep='\t' if pheno_file.endswith('.tsv') else ',')
     id_col = next((c for c in df.columns if c.lower() in ['iid', 'sample_id', 'id']), df.columns[0])
-    df[id_col] = df[id_col].astype(str)
-    return dict(zip(df[id_col], df[trait]))
+    mapped_df = map_pheno_ids_to_plink_ids(df, plink_prefix, id_col)
+    valid_df = mapped_df[mapped_df[trait].notna()].copy()
+    return dict(zip(valid_df['IID'].astype(str), valid_df[trait]))
 
 def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene_path, out_dir, 
           lr=3e-4, batch_size=64, epochs=150, lambda_l1=0.005, device='auto', ablation='full'):
@@ -342,31 +397,51 @@ def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene
     G = bed.compute().T
     if G.shape[1] > m: G = G[:, :m]
     
-    ymap = _load_pheno_map(pheno_file, trait)
+    ymap = _load_pheno_map(pheno_file, trait, plink_prefix)
     iid2idx = {str(iid): i for i, iid in enumerate(fam['iid'].astype(str))}
     tr_df = pd.read_csv(train_ids, sep='\t', names=['FID', 'IID'])
     te_df = pd.read_csv(test_ids, sep='\t', names=['FID', 'IID'])
     
-    tr_ids = [str(x) for x in tr_df['IID'] if str(x) in iid2idx and str(x) in ymap]
+    all_train_ids = [str(x) for x in tr_df['IID'] if str(x) in iid2idx and str(x) in ymap]
     te_ids = [str(x) for x in te_df['IID'] if str(x) in iid2idx and str(x) in ymap]
-    
-    X_tr = G[[iid2idx[x] for x in tr_ids]]; X_te = G[[iid2idx[x] for x in te_ids]]
-    y_tr = np.array([ymap[x] for x in tr_ids]); y_te = np.array([ymap[x] for x in te_ids])
-    
-    pca_path = out / "global_pca_features.csv"
-    P_tr = load_pca(pca_path, tr_ids); P_te = load_pca(pca_path, te_ids)
-    
-    # [Robust] Handle NaN in inputs
-    sc_g = StandardScaler(); X_tr = sc_g.fit_transform(X_tr); X_te = sc_g.transform(X_te)
-    sc_p = StandardScaler(); P_tr = sc_p.fit_transform(P_tr); P_te = sc_p.transform(P_te)
-    X_tr = np.nan_to_num(X_tr); X_te = np.nan_to_num(X_te)
-    P_tr = np.nan_to_num(P_tr); P_te = np.nan_to_num(P_te)
+
+    train_split_idx, val_split_idx = _make_train_val_split(all_train_ids)
+    fit_ids = [all_train_ids[idx] for idx in train_split_idx]
+    val_ids = [all_train_ids[idx] for idx in val_split_idx]
+    if not val_ids:
+        val_ids = list(fit_ids)
+
+    X_fit = G[[iid2idx[x] for x in fit_ids]]
+    X_val = G[[iid2idx[x] for x in val_ids]]
+    X_te = G[[iid2idx[x] for x in te_ids]]
+    y_fit = np.array([ymap[x] for x in fit_ids])
+    y_val = np.array([ymap[x] for x in val_ids])
+    y_te = np.array([ymap[x] for x in te_ids])
+
+    # [Leakage Fix] Fit genotype scaling and context PCA on the training subset only.
+    sc_g = StandardScaler()
+    X_fit = sc_g.fit_transform(X_fit)
+    X_val = sc_g.transform(X_val)
+    X_te = sc_g.transform(X_te)
+
+    P_fit, (P_val, P_te) = _build_fold_pca_features(X_fit, [X_val, X_te], num_pcs=10)
+    sc_p = StandardScaler()
+    P_fit = sc_p.fit_transform(P_fit)
+    P_val = sc_p.transform(P_val)
+    P_te = sc_p.transform(P_te)
+
+    X_fit = np.nan_to_num(X_fit)
+    X_val = np.nan_to_num(X_val)
+    X_te = np.nan_to_num(X_te)
+    P_fit = np.nan_to_num(P_fit)
+    P_val = np.nan_to_num(P_val)
+    P_te = np.nan_to_num(P_te)
     
     model = BioMasterV10(
         delta,
         gene,
-        num_snps=X_tr.shape[1],
-        num_pcs=P_tr.shape[1],
+        num_snps=X_fit.shape[1],
+        num_pcs=P_fit.shape[1],
         block_size=100,
         ablation=ablation,
     ).to(dev)
@@ -382,7 +457,7 @@ def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene
     crit = HybridPCCLoss(alpha=1.0, beta=0.5, gamma=0.1)
 
     nw = 4 if dev=='cuda' else 0 
-    loader = DataLoader(_DS(X_tr, P_tr, y_tr), batch_size=batch_size, shuffle=True, 
+    loader = DataLoader(_DS(X_fit, P_fit, y_fit), batch_size=batch_size, shuffle=True, 
                         num_workers=nw, drop_last=True)
     
     best_pcc = -1.0; patience = 0
@@ -418,14 +493,14 @@ def train(plink_prefix, pheno_file, train_ids, test_ids, trait, delta_path, gene
         # Validation
         model.eval()
         with torch.no_grad():
-            vt_x = torch.tensor(X_te, dtype=torch.float32).to(dev)
-            vt_p = torch.tensor(P_te, dtype=torch.float32).to(dev)
+            vt_x = torch.tensor(X_val, dtype=torch.float32).to(dev)
+            vt_p = torch.tensor(P_val, dtype=torch.float32).to(dev)
             vp, _, _, _ = model(vt_x, vt_p)
             vp = vp.cpu().numpy().flatten()
             
             # [Robust] Safe PCC
-            if len(y_te) > 1:
-                val_pcc = float(pearsonr(y_te, vp)[0])
+            if len(y_val) > 1:
+                val_pcc = float(pearsonr(y_val, vp)[0])
                 if np.isnan(val_pcc): val_pcc = -1.0
             else:
                 val_pcc = 0.0

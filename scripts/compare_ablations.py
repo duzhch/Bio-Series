@@ -130,6 +130,12 @@ def build_rep_header(ablations):
 def build_summary_header(ablations):
     return (
         ["dataset_trait", "N_full_reps"]
+        + [f"N_{ablation}_reps" for ablation in ablations if ablation != "full"]
+        + [
+            f"N_paired_full_vs_{ablation}_reps"
+            for ablation in ablations
+            if ablation != "full"
+        ]
         + [
             column
             for ablation in ablations
@@ -191,6 +197,26 @@ def build_summary_rows(rep_rows, rep_header, ablations):
     for dataset_trait in sorted(grouped):
         rows = grouped[dataset_trait]
         summary_row = [dataset_trait, len(rows)]
+
+        for ablation in ablations:
+            if ablation == "full":
+                continue
+            n_valid = sum(
+                1
+                for row in rows
+                if row[header_index[f"PCC_{ablation}"]] not in ("", None)
+            )
+            summary_row.append(n_valid)
+
+        for ablation in ablations:
+            if ablation == "full":
+                continue
+            n_paired = sum(
+                1
+                for row in rows
+                if row[header_index[f"Delta_full_minus_{ablation}"]] not in ("", None)
+            )
+            summary_row.append(n_paired)
 
         for ablation in ablations:
             mean, std = safe_stats([row[header_index[f"PCC_{ablation}"]] for row in rows])

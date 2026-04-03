@@ -14,6 +14,9 @@ import torch.nn as nn
 
 
 def load_bio_master_module(monkeypatch):
+    project_root = Path(__file__).resolve().parents[1]
+    monkeypatch.syspath_prepend(str(project_root))
+
     def stub_module(name):
         mod = types.ModuleType(name)
         mod.__spec__ = importlib.machinery.ModuleSpec(name, loader=None)
@@ -49,7 +52,7 @@ def load_bio_master_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "scipy", scipy_mod)
     monkeypatch.setitem(sys.modules, "scipy.stats", scipy_stats_mod)
 
-    module_path = Path(__file__).resolve().parents[1] / "src" / "models" / "bio_master_v11.py"
+    module_path = project_root / "src" / "models" / "bio_master_v11.py"
     module_name = f"bio_master_v11_{uuid.uuid4().hex}"
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     module = importlib.util.module_from_spec(spec)
@@ -227,6 +230,145 @@ def test_hybrid_loss_orthogonality_uses_per_sample_feature_alignment(monkeypatch
     expected = torch.tensor((0.8 + 24.0 / 25.0) / 2.0, dtype=torch.float32)
 
     assert torch.isclose(loss, expected, atol=1e-6)
+
+
+def test_load_pheno_map_excludes_missing_trait_values(monkeypatch):
+    module = load_bio_master_module(monkeypatch)
+
+    pheno_df = pd.DataFrame(
+        {
+            "ID": ["1", "2", "3"],
+            "LMA": [10.5, np.nan, 12.0],
+        }
+    )
+
+    monkeypatch.setattr(module.pd, "read_csv", lambda *_args, **_kwargs: pheno_df.copy())
+    monkeypatch.setattr(
+        module,
+        "map_pheno_ids_to_plink_ids",
+        lambda pheno_df, plink_prefix, id_col: pheno_df.assign(
+            FID=["0", "0", "0"],
+            IID=["1_1", "2_2", "3_3"],
+        )[["FID", "IID", "ID", "LMA"]],
+    )
+
+    ymap = module._load_pheno_map("pheno.csv", "LMA", "demo_plink")
+
+    assert ymap == {"1_1": 10.5, "3_3": 12.0}
+
+
+def test_partition_train_validation_is_disjoint_and_exhaustive(monkeypatch):
+    module = load_bio_master_module(monkeypatch)
+
+    train_ids = [f"id_{i:02d}" for i in range(12)]
+    train_idx, val_idx = module._make_train_val_split(train_ids)
+
+    assert train_idx
+    assert val_idx
+    assert set(train_idx).isdisjoint(val_idx)
+    assert sorted(train_idx + val_idx) == list(range(len(train_ids)))
+
+
+def test_fold_pca_fits_on_training_subset_only(monkeypatch):
+    module = load_bio_master_module(monkeypatch)
+
+    # The third row is a held-out sample with a large value. If PCA leaks across
+    # all samples, the transformed training rows will no longer be symmetric.
+    x_train = np.array([[-1.0], [1.0]], dtype=np.float32)
+    x_holdout = np.array([[100.0]], dtype=np.float32)
+
+    train_scores, holdout_scores = module._build_fold_pca_features(
+        x_train,
+        [x_holdout],
+        num_pcs=1,
+    )
+
+    assert train_scores.shape == (2, 1)
+    assert holdout_scores[0].shape == (1, 1)
+    assert train_scores[:, 0] == pytest.approx([-1.0, 1.0], abs=1e-5)
+    assert holdout_scores[0][0, 0] > 90.0
+
+
+def test_train_uses_validation_subset_for_model_selection(monkeypatch, tmp_path):
+    module = load_bio_master_module(monkeypatch)
+    captured = {"pearson_lengths": []}
+
+    class DummyBed:
+        def __init__(self, data):
+            self._data = data
+
+        def compute(self):
+            return self._data
+
+    class DummyModel(nn.Module):
+        def __init__(self, delta_E, gene_E, num_snps, num_pcs, block_size=100, ablation="full"):
+            super().__init__()
+            self.bias = nn.Parameter(torch.zeros(1))
+            self.wide_linear = nn.Linear(num_snps, 1)
+
+        def forward(self, x_snps, x_pcs):
+            batch_size, num_snps = x_snps.shape
+            pred = self.wide_linear(x_snps) + self.bias
+            priors = torch.zeros(num_snps, 1, device=x_snps.device)
+            feat_deep = torch.zeros(batch_size, 64, device=x_snps.device)
+            feat_ctx = torch.zeros(batch_size, 64, device=x_snps.device)
+            return pred, priors, feat_deep, feat_ctx
+
+    train_id_rows = [[f"F{i}", str(i)] for i in range(1, 11)]
+    test_id_rows = [["FT1", "101"], ["FT2", "102"], ["FT3", "103"]]
+
+    def fake_read_csv(path, sep=",", names=None):
+        path = str(path)
+        if path.endswith("train.ids"):
+            return pd.DataFrame(train_id_rows, columns=names)
+        if path.endswith("test.ids"):
+            return pd.DataFrame(test_id_rows, columns=names)
+        raise AssertionError(f"Unexpected read_csv path: {path}")
+
+    geno = np.array(
+        [[float(i + j) for j in range(5)] for i in range(13)],
+        dtype=np.float32,
+    )
+    delta = np.ones((5, 4), dtype=np.float32)
+    gene = np.ones((5, 300), dtype=np.float32)
+
+    def fake_pearsonr(y_true, y_pred):
+        captured["pearson_lengths"].append(len(y_true))
+        return (0.0, 0.0)
+
+    pheno = {str(i): float(i) for i in range(1, 11)}
+    pheno.update({"101": 101.0, "102": 102.0, "103": 103.0})
+
+    monkeypatch.setattr(module, "BioMasterV10", DummyModel)
+    monkeypatch.setattr(
+        module,
+        "read_plink",
+        lambda *_args, **_kwargs: (
+            None,
+            pd.DataFrame({"iid": [str(i) for i in range(1, 11)] + ["101", "102", "103"]}),
+            DummyBed(geno.T),
+        ),
+    )
+    monkeypatch.setattr(module, "_load_pheno_map", lambda *_args, **_kwargs: pheno)
+    monkeypatch.setattr(module.pd, "read_csv", fake_read_csv)
+    monkeypatch.setattr(module.np, "load", lambda path: delta if "delta" in str(path) else gene)
+    monkeypatch.setattr(module, "pearsonr", fake_pearsonr)
+
+    module.train(
+        plink_prefix="plink",
+        pheno_file="pheno.csv",
+        train_ids="train.ids",
+        test_ids="test.ids",
+        trait="trait",
+        delta_path="delta.npy",
+        gene_path="gene.npy",
+        out_dir=str(tmp_path),
+        epochs=1,
+        batch_size=2,
+        ablation="full",
+    )
+
+    assert captured["pearson_lengths"] == [2, 3]
 
 
 def test_train_threads_ablation_to_model(monkeypatch, tmp_path):

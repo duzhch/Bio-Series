@@ -552,6 +552,9 @@ def test_submit_jobs_defaults_emit_explicit_model_and_ablation_flags(tmp_path, m
     script_text = script_paths[0].read_text()
     expected_code_dir = Path(submit_jobs.__file__).resolve().parent
     expected_config = config_path.resolve()
+    assert "set -euo pipefail" in script_text
+    assert "source ~/.bashrc" in script_text
+    assert "conda activate NT" in script_text
     assert f"cd {expected_code_dir}" in script_text
     assert f"--config {expected_config}" in script_text
     assert "--model bio_master_v11" in script_text
@@ -618,6 +621,9 @@ def test_submit_jobs_generates_one_script_per_rep_and_ablation_with_explicit_fla
     assert all("No-Delta" not in line for line in submit_text.splitlines())
 
     script_texts = [script.read_text() for script in script_paths]
+    assert all("set -euo pipefail" in text for text in script_texts)
+    assert all("source ~/.bashrc" in text for text in script_texts)
+    assert all("conda activate NT" in text for text in script_texts)
     assert all("--model bio_master_v13" in text for text in script_texts)
     assert sum("--ablation full" in text for text in script_texts) == 2
     assert sum("--ablation no_delta" in text for text in script_texts) == 2
@@ -727,12 +733,16 @@ def test_compare_ablations_summarizes_against_full(tmp_path):
     assert summary_rows
     summary_fieldnames = summary_rows[0].keys()
     assert "PCC_full_mean" in summary_rows[0]
+    assert "N_drop_aux_reps" in summary_rows[0]
+    assert "N_paired_full_vs_drop_aux_reps" in summary_rows[0]
     assert "mean_Delta_full_minus_drop_aux" in summary_rows[0]
     assert "MSE_drop_aux_mean" in summary_rows[0]
     assert "PCC_no_gene2vec_mean" not in summary_fieldnames
-    assert list(summary_fieldnames)[:6] == [
+    assert list(summary_fieldnames)[:8] == [
         "dataset_trait",
         "N_full_reps",
+        "N_drop_aux_reps",
+        "N_paired_full_vs_drop_aux_reps",
         "PCC_full_mean",
         "PCC_full_std",
         "PCC_drop_aux_mean",
@@ -740,6 +750,8 @@ def test_compare_ablations_summarizes_against_full(tmp_path):
     ]
     assert summary_rows[0]["dataset_trait"] == "Demo_BF"
     assert summary_rows[0]["N_full_reps"] == "1"
+    assert summary_rows[0]["N_drop_aux_reps"] == "1"
+    assert summary_rows[0]["N_paired_full_vs_drop_aux_reps"] == "1"
     assert summary_rows[0]["PCC_full_mean"] == "0.8200"
     assert summary_rows[0]["mean_Delta_full_minus_drop_aux"] == "0.0700"
     assert summary_rows[0]["MSE_drop_aux_mean"] == "1.2000"
@@ -821,5 +833,8 @@ def test_compare_ablations_treats_non_numeric_stats_as_missing(tmp_path):
 
     summary_rows = list(csv.DictReader((out_dir / "ablation_compare_summary.csv").open(newline="")))
     assert len(summary_rows) == 1
+    assert summary_rows[0]["N_drop_aux_reps"] == "0"
+    assert summary_rows[0]["N_paired_full_vs_drop_aux_reps"] == "0"
     assert summary_rows[0]["PCC_drop_aux_mean"] == ""
     assert summary_rows[0]["MSE_drop_aux_mean"] == ""
+    assert summary_rows[0]["mean_Delta_full_minus_drop_aux"] == ""

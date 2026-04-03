@@ -164,6 +164,9 @@ def main():
                         f"#SBATCH --time={cfg['slurm']['time']}",
                     ]
                     body = [
+                        "set -euo pipefail",
+                        "source ~/.bashrc",
+                        "conda activate NT",
                         f"cd {code_dir}",
                         f"{cfg['resources']['python_bin']} DF_GSF_v5.py run-all "
                         f"--config {config_path} "
