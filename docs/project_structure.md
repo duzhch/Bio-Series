@@ -8,6 +8,7 @@
 - `scripts/compare_ablations.py`: ablation result summarization utility
 - `tests/`: regression and wiring tests for launcher and ablation behavior
 - `config/examples/public_template.yaml`: GitHub-safe configuration template
+- `docs/2026-04-04-bio-series-leakfix-ablation-results.md`: repaired Bio-series baseline and ablation run summary, including script and result locations
 
 ## Archived or supporting content
 
